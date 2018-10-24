@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"text/template"
 )
 
@@ -89,15 +90,7 @@ func newError(err error, tmpl *template.Template, root string) error {
 	}
 }
 
-// Render 構造体は、テンプレートファイルの解析に使用する
-type Render struct {
-	TargetDirs []string         // ビュー内で使用可能なデータを登録する
-	Extension  []string         // 許可する拡張子
-	Data       interface{}      // ビュー内で使用可能なデータを登録する
-	Funcs      template.FuncMap // ヘルパ関数登録
-}
-
-// String は、文字列テンプレートを処理する
+// String : 文字列テンプレートを処理する
 func String(src []byte, i interface{}) ([]byte, error) {
 	tmpl, err := template.New("string").Parse(string(src))
 	if err != nil {
@@ -114,115 +107,68 @@ func String(src []byte, i interface{}) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// Helper を登録する
-func (r *Render) Helper(i interface{}) error {
-	// 型情報を取得
-	types := reflect.TypeOf(i)
-	// 構造体ではない場合、エラーを返却する
-	if types.Kind() != reflect.Struct {
-		return newError(fmt.Errorf("helper: argument type not struct"), nil, "")
-	}
-
-	// メソッドが1つ以上ある場合は、Funcsへ関数を登録する
-	if types.NumMethod() > 0 {
-		fv := reflect.ValueOf(i)
-		if r.Funcs == nil {
-			r.Funcs = make(template.FuncMap)
-		}
-		for i := 0; i < types.NumMethod(); i++ {
-			method := types.Method(i)
-			r.Funcs[method.Name] = fv.Method(i).Interface()
-		}
-	}
-	return nil
+// Config : 対象となるテンプレートファイルの設定情報を管理する構造体である。
+type Config struct {
+	TargetDirs []string // ビュー内で使用可能なデータを登録する
+	Extension  []string // 許可する拡張子
 }
 
-// String は、文字列テンプレートを処理する
-func (r *Render) String(src []byte) ([]byte, error) {
-	tmpl, root, err := r.filelist(r.TargetDirs...)
+// NewRender : Render構造体を作成する関数
+func (c *Config) NewRender() (*Render, error) {
+	// ファイルリストを作成する
+	filelist, err := c.filelist(c.TargetDirs...)
 	if err != nil {
-		return nil, newError(err, tmpl, root)
+		return nil, err
 	}
-	if tmpl == nil {
-		t, e := template.New("string").Funcs(r.Funcs).Parse(string(src))
-		if e != nil {
-			return nil, newError(e, tmpl, string(src))
-		}
-		tmpl = t
-	} else {
-		t, e := tmpl.New("string").Parse(string(src))
-		if e != nil {
-			return nil, newError(e, tmpl, string(src))
-		}
-		tmpl = t
-	}
-	var buf bytes.Buffer
-	if err = tmpl.ExecuteTemplate(&buf, "string", r.Data); err != nil {
-		// exceeded maximum template depth (100000)
-		return nil, newError(err, tmpl, "")
-	}
-	return buf.Bytes(), err
-}
-
-// Render は複数のターゲットを1つのテンプレートファイルにする
-func (r *Render) Render(viewname string) ([]byte, error) {
-	tmpl, root, err := r.filelist(r.TargetDirs...)
-	if err != nil {
-		return nil, newError(err, tmpl, root)
-	}
-	if tmpl == nil {
-		return nil, newError(fmt.Errorf("template: target directory not found"), nil, "")
-	}
-	var buf bytes.Buffer
-	if err := tmpl.ExecuteTemplate(&buf, viewname, r.Data); err != nil {
-		return nil, newError(err, tmpl, "")
-	}
-	return buf.Bytes(), nil
+	// テンプレート情報を返却する
+	return &Render{
+		filelist: filelist,
+		Funcs:    make(template.FuncMap),
+	}, nil
 }
 
 // ディレクトリ配下にある対象となるファイルを抽出し、テンプレートを生成する
-func (r *Render) filelist(dirs ...string) (*template.Template, string, error) {
-	var tmpl *template.Template
+func (c *Config) filelist(dirs ...string) ([]*File, error) {
+	var filelist []*File
 
 	// 指定されたディレクトリ分ループする
 	for _, dirname := range dirs {
-		var root string
 		err := filepath.Walk(dirname, func(path string, info os.FileInfo, err error) error {
 			// ファイルがない、またはディレクトリの場合はスルーする
 			if err != nil || info.IsDir() {
 				return nil
 			}
 			// 対象となる拡張子がない場合は、falseを返却する
-			if r.isExt(path) == false {
+			if c.isExt(path) == false {
 				return nil
 			}
-			// ファイルを読み込み、テンプレートを生成する
-			var buf []byte
-			if buf, err = ioutil.ReadFile(path); err == nil {
-				basename := path[len(dirname)+1:]
-				root = string(buf)
-				if tmpl == nil {
-					tmpl, err = template.New(r.path(basename)).Funcs(r.Funcs).Parse(string(buf))
-				} else {
-					tmpl, err = tmpl.New(r.path(basename)).Parse(string(buf))
-				}
+			// ファイルを読み込み、ファイル内容を構造体に格納する
+			buf, err := ioutil.ReadFile(path)
+			if err != nil {
+				return err
 			}
+			filelist = append(filelist, &File{
+				Filename: c.path(path[len(dirname)+1:]),
+				Template: string(buf),
+			})
+
 			return err
 		})
 		if err != nil {
-			return nil, root, err
+			return nil, err
 		}
 	}
-	return tmpl, "", nil
+	// ファイルリストを返却する
+	return filelist, nil
 }
 
 // 拡張子の一致を確認する
-func (r *Render) isExt(path string) bool {
-	if len(r.Extension) == 0 {
+func (c *Config) isExt(path string) bool {
+	if len(c.Extension) == 0 {
 		return true
 	}
 	// 対象となる拡張子があるかチェックする
-	for _, ext := range r.Extension {
+	for _, ext := range c.Extension {
 		if len(path) < len(ext) || path[len(path)-len(ext):] == ext {
 			return true
 		}
@@ -232,10 +178,157 @@ func (r *Render) isExt(path string) bool {
 }
 
 // Windows の場合、\ ---> / へ置き換える
-func (r *Render) path(path string) string {
+func (c *Config) path(path string) string {
 	if runtime.GOOS == "windows" {
 		return strings.Replace(path, "\\", "/", -1)
 	}
 	// Windows 以外の場合しか、通らない
 	return path
+}
+
+// File : テンプレート対象になるファイル情報を管理する構造体
+type File struct {
+	Filename string
+	Template string
+}
+
+// Render : レンダー管理構造体
+type Render struct {
+	mu       sync.Mutex       // ミューテックス
+	filelist []*File          // テンプレートファイルリスト
+	Funcs    template.FuncMap // ビュー内で使用可能なヘルパ関数を登録する
+	Data     interface{}      // ビュー内で使用可能なデータを登録する
+}
+
+// Copy : Render をコピーする
+func (r *Render) Copy() *Render {
+	var funcs = make(template.FuncMap)
+	if r.Funcs != nil {
+		for k, v := range r.Funcs {
+			funcs[k] = v
+		}
+	}
+	return &Render{
+		filelist: r.filelist,
+		Funcs:    funcs,
+		Data:     r.Data,
+	}
+}
+
+// Helper : ヘルパ登録関数
+func (r *Render) Helper(i interface{}) error {
+	// 型情報を取得
+	types := reflect.TypeOf(i)
+	// 構造体ではない場合、エラーを返却する
+	if types.Kind() != reflect.Struct {
+		return newError(fmt.Errorf("argument type not struct"), nil, "")
+	}
+	// template.FuncMap が nil の場合 make する
+	if r.Funcs == nil {
+		r.Funcs = make(template.FuncMap)
+	}
+	// 重複していた場合、エラーを返却する
+	if _, ok := r.Funcs[types.Name()]; ok {
+		return newError(fmt.Errorf("'%s' - duplicate function", types.Name()), nil, "")
+	}
+	// メソッドが1つ以上ある場合は、Funcsへ関数を登録する
+	if types.NumMethod() > 0 {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		fv := reflect.New(types)
+		r.Funcs[types.Name()] = func() interface{} {
+			return fv.Elem().Interface()
+		}
+	}
+
+	return nil
+}
+
+// GlobalHelper : ヘルパ登録関数
+func (r *Render) GlobalHelper(i interface{}) error {
+	// 型情報を取得
+	types := reflect.TypeOf(i)
+
+	// 構造体ではない場合、エラーを返却する
+	if types.Kind() != reflect.Struct {
+		return newError(fmt.Errorf("argument type not struct"), nil, "")
+	}
+
+	// メソッドが1つ以上ある場合は、Funcsへ関数を登録する
+	if types.NumMethod() > 0 {
+		fv := reflect.ValueOf(i)
+		if r.Funcs == nil {
+			r.Funcs = make(template.FuncMap)
+		}
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		for i := 0; i < types.NumMethod(); i++ {
+			method := types.Method(i)
+			if _, ok := r.Funcs[method.Name]; ok {
+				return newError(fmt.Errorf("'%s' - duplicate function", method.Name), nil, "")
+			}
+			r.Funcs[method.Name] = fv.Method(i).Interface()
+		}
+	}
+	return nil
+}
+
+// String : 文字列テンプレートを処理する
+func (r *Render) String(src []byte) ([]byte, error) {
+	tmpl, root, err := r.templates()
+	if err != nil {
+		return nil, newError(err, tmpl, root)
+	}
+
+	t, err := tmpl.New("string").Parse(string(src))
+	if err != nil {
+		return nil, newError(err, tmpl, string(src))
+	}
+	tmpl = t
+
+	var buf bytes.Buffer
+	if err = tmpl.ExecuteTemplate(&buf, "string", r.Data); err != nil {
+		// exceeded maximum template depth (100000)
+		return nil, newError(err, tmpl, "")
+	}
+	return buf.Bytes(), err
+}
+
+// Render : 複数テンプレートから描画する
+func (r *Render) Render(viewname string) ([]byte, error) {
+	tmpl, root, err := r.templates()
+	if err != nil {
+		return nil, newError(err, tmpl, root)
+	}
+	var buf bytes.Buffer
+	if err := tmpl.ExecuteTemplate(&buf, viewname, r.Data); err != nil {
+		return nil, newError(err, tmpl, "")
+	}
+	return buf.Bytes(), nil
+}
+
+// テンプレートを作成する
+func (r *Render) templates() (*template.Template, string, error) {
+	var tmpl *template.Template
+	var target string
+
+	// 対象となるファイル数分ループし、テンプレートを作成する
+	for _, v := range r.filelist {
+		var err error
+		target = v.Template
+		if tmpl == nil {
+			tmpl, err = template.New(v.Filename).Funcs(r.Funcs).Parse(target)
+		} else {
+			tmpl, err = tmpl.New(v.Filename).Parse(target)
+		}
+		if err != nil {
+			return nil, target, err
+		}
+	}
+	// テンプレートが作成できなかった場合、エラーを返却する
+	if tmpl == nil {
+		return nil, "", fmt.Errorf("no target directory")
+	}
+
+	return tmpl, "", nil
 }
