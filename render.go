@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -311,6 +312,14 @@ func (r *Render) Render(viewname string) ([]byte, error) {
 func (r *Render) templates() (*template.Template, string, error) {
 	var tmpl *template.Template
 	var target string
+
+	// 登録されているr.Funcsに、不正な関数名が登録されていないかチェックする
+	regex := regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_]+`)
+	for name, _ := range r.Funcs {
+		if regex.MatchString(name) == false {
+			return nil, "", fmt.Errorf("function name %s is not a valid identifier", name)
+		}
+	}
 
 	// 対象となるファイル数分ループし、テンプレートを作成する
 	for _, v := range r.filelist {
