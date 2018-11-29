@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"regexp"
 	"testing"
 )
 
@@ -24,6 +25,7 @@ func Test__RENDER_NORMAL_SUCCESS(t *testing.T) {
 		Extension: []string{
 			".html",
 		},
+		Exclude: regexp.MustCompile(`^//=\s*(.+?)|^/\*=\s*(.+?)\*/`),
 	}
 
 	// 設定情報を元に、レンダリングオブジェクトを作成
@@ -44,13 +46,22 @@ func Test__RENDER_NORMAL_SUCCESS(t *testing.T) {
 	if err := cp.Helper(Sample{}); err != nil {
 		t.Fatal(err)
 	}
+	cp.Funcs["notuse$name"] = func() string {
+		return "notusename"
+	}
+
+	if _, err := cp.Render("app/index.html"); err == nil {
+		t.Fatal("cp.Render: error")
+	}
+	delete(cp.Funcs, "notuse$name")
+
 	cp.Funcs["mapfunc"] = func() string {
 		return "mapfunc called"
 	}
 	// レンダリング開始
 	buf, err := cp.Render("app/index.html")
 	if err != nil {
-		t.Fatal(err)
+		t.Fatal("ERROR", err)
 	}
 
 	// 表示

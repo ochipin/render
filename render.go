@@ -17,23 +17,20 @@ import (
 
 // Error 構造体は、Renderのエラー処理に使用する
 type Error struct {
-	Line     int
-	Type     string
-	Message  string
-	Basename string
-	Root     string
+	Line     int    // エラー行番号
+	Type     string // エラータイプ
+	Message  string // エラー内容
+	Basename string // エラーが発生したビューファイル名
+	Root     string // エラーが発生したビューファイルの本文
 }
 
 // Error 関数
 func (e *Error) Error() string {
 	if e.Line == 0 {
-		if e.Type == "" {
-			return e.Message
-		}
-		return e.Type + ": " + e.Message
+		return e.Message
 	}
-	// ex) render error: app/index.html:%d: function "callfunc" not defined
-	return fmt.Sprintf("%s: %s:%d: %s", e.Type, e.Basename, e.Line, e.Message)
+	// ex) app/index.html:11: function "callfunc" not defined
+	return fmt.Sprintf("%s:%d: %s", e.Basename, e.Line, e.Message)
 }
 
 // Error 構造体に値をセットする関数
@@ -112,6 +109,10 @@ func String(src []byte, i interface{}) ([]byte, error) {
 type Config struct {
 	TargetDirs []string // ビュー内で使用可能なデータを登録する
 	Extension  []string // 許可する拡張子
+	// 読み込んだビューファイル内で除外する文字列を指定する
+	// Exclude で指定した文字列を除外するのは、テンプレートファイルの構文解析前に実行される点に注意すること
+	Exclude *regexp.Regexp
+	Cache   bool // ビューのキャッシュ有効フラグ
 }
 
 // NewRender : Render構造体を作成する関数
@@ -124,6 +125,10 @@ func (c *Config) NewRender() (*Render, error) {
 	// テンプレート情報を返却する
 	return &Render{
 		filelist: filelist,
+		cache:    c.Cache,
+		exclude:  c.Exclude,
+		dirs:     c.TargetDirs,
+		ext:      c.Extension,
 		Funcs:    make(template.FuncMap),
 	}, nil
 }
@@ -143,14 +148,41 @@ func (c *Config) filelist(dirs ...string) ([]*File, error) {
 			if c.isExt(path) == false {
 				return nil
 			}
-			// ファイルを読み込み、ファイル内容を構造体に格納する
+			// ファイルを読み込み、ファイル内容を変数に格納する
 			buf, err := ioutil.ReadFile(path)
 			if err != nil {
 				return err
 			}
+			str := string(buf)
+
+			// ファイル内容がバイナリかテキストか判定する
+			IsBinary := false
+			for _, b := range buf {
+				if b <= 8 {
+					IsBinary = true
+				}
+			}
+
+			// 文字列除外設定されている場合、指定された文字列を除外する
+			if c.Exclude != nil && IsBinary == false {
+				regex := c.Exclude.Copy()
+				strs := strings.Split(str, "\n")
+				for i, v := range strs {
+					if !regex.MatchString(v) {
+						continue
+					}
+					find := regex.FindStringSubmatch(v)
+					if len(find) > 0 {
+						strs[i] = regex.ReplaceAllString(v, strings.Join(find[1:], ""))
+					}
+				}
+				str = strings.Join(strs, "\n")
+			}
+
 			filelist = append(filelist, &File{
-				Filename: c.path(path[len(dirname)+1:]),
-				Template: string(buf),
+				Filename: c.path(path[len(dirname)+1:]), // ファイル名
+				Template: str,                           // ファイル内容
+				IsBinary: IsBinary,                      // バイナリ or テキスト
 			})
 
 			return err
@@ -191,12 +223,17 @@ func (c *Config) path(path string) string {
 type File struct {
 	Filename string
 	Template string
+	IsBinary bool
 }
 
 // Render : レンダー管理構造体
 type Render struct {
 	mu       sync.Mutex       // ミューテックス
 	filelist []*File          // テンプレートファイルリスト
+	cache    bool             // テンプレートキャッシュの有効無効フラグ
+	exclude  *regexp.Regexp   // 正規表現オブジェクト
+	dirs     []string         // 対象ディレクトリ一覧
+	ext      []string         // 対象拡張子一覧
 	Funcs    template.FuncMap // ビュー内で使用可能なヘルパ関数を登録する
 	Data     interface{}      // ビュー内で使用可能なデータを登録する
 }
@@ -211,6 +248,10 @@ func (r *Render) Copy() *Render {
 	}
 	return &Render{
 		filelist: r.filelist,
+		exclude:  r.exclude,
+		dirs:     r.dirs,
+		ext:      r.ext,
+		cache:    r.cache,
 		Funcs:    funcs,
 		Data:     r.Data,
 	}
@@ -312,18 +353,32 @@ func (r *Render) Render(viewname string) ([]byte, error) {
 func (r *Render) templates() (*template.Template, string, error) {
 	var tmpl *template.Template
 	var target string
+	var err error
 
 	// 登録されているr.Funcsに、不正な関数名が登録されていないかチェックする
-	regex := regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_]+`)
+	regex := regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_]+$`)
 	for name, _ := range r.Funcs {
 		if regex.MatchString(name) == false {
 			return nil, "", fmt.Errorf("function name %s is not a valid identifier", name)
 		}
 	}
 
+	files := r.filelist
+	if r.cache == false {
+		conf := &Config{
+			Exclude:    r.exclude,
+			TargetDirs: r.dirs,
+			Extension:  r.ext,
+			Cache:      r.cache,
+		}
+		files, err = conf.filelist(r.dirs...)
+		if err != nil {
+			return nil, "", err
+		}
+	}
+
 	// 対象となるファイル数分ループし、テンプレートを作成する
-	for _, v := range r.filelist {
-		var err error
+	for _, v := range files {
 		target = v.Template
 		if tmpl == nil {
 			tmpl, err = template.New(v.Filename).Funcs(r.Funcs).Parse(target)
