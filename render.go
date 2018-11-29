@@ -105,6 +105,18 @@ func String(src []byte, i interface{}) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+// バイナリファイルのみを対象としたマップデータを作成する
+func toBinary(files []*File) map[string][]byte {
+	result := make(map[string][]byte)
+	for _, f := range files {
+		if !f.IsBinary {
+			continue
+		}
+		result[f.Filename] = []byte(f.Template)
+	}
+	return result
+}
+
 // Config : 対象となるテンプレートファイルの設定情報を管理する構造体である。
 type Config struct {
 	TargetDirs []string // ビュー内で使用可能なデータを登録する
@@ -122,6 +134,8 @@ func (c *Config) NewRender() (*Render, error) {
 	if err != nil {
 		return nil, err
 	}
+	// バイナリファイルリストを作成する
+	binlist := toBinary(filelist)
 	// テンプレート情報を返却する
 	return &Render{
 		filelist: filelist,
@@ -129,6 +143,7 @@ func (c *Config) NewRender() (*Render, error) {
 		exclude:  c.Exclude,
 		dirs:     c.TargetDirs,
 		ext:      c.Extension,
+		binlist:  binlist,
 		Funcs:    make(template.FuncMap),
 	}, nil
 }
@@ -228,14 +243,15 @@ type File struct {
 
 // Render : レンダー管理構造体
 type Render struct {
-	mu       sync.Mutex       // ミューテックス
-	filelist []*File          // テンプレートファイルリスト
-	cache    bool             // テンプレートキャッシュの有効無効フラグ
-	exclude  *regexp.Regexp   // 正規表現オブジェクト
-	dirs     []string         // 対象ディレクトリ一覧
-	ext      []string         // 対象拡張子一覧
-	Funcs    template.FuncMap // ビュー内で使用可能なヘルパ関数を登録する
-	Data     interface{}      // ビュー内で使用可能なデータを登録する
+	mu       sync.Mutex        // ミューテックス
+	filelist []*File           // テンプレートファイルリスト
+	cache    bool              // テンプレートキャッシュの有効無効フラグ
+	exclude  *regexp.Regexp    // 正規表現オブジェクト
+	dirs     []string          // 対象ディレクトリ一覧
+	ext      []string          // 対象拡張子一覧
+	binlist  map[string][]byte // バイナリファイル一覧
+	Funcs    template.FuncMap  // ビュー内で使用可能なヘルパ関数を登録する
+	Data     interface{}       // ビュー内で使用可能なデータを登録する
 }
 
 // Copy : Render をコピーする
@@ -252,6 +268,7 @@ func (r *Render) Copy() *Render {
 		dirs:     r.dirs,
 		ext:      r.ext,
 		cache:    r.cache,
+		binlist:  r.binlist,
 		Funcs:    funcs,
 		Data:     r.Data,
 	}
@@ -338,6 +355,15 @@ func (r *Render) String(src []byte) ([]byte, error) {
 
 // Render : 複数テンプレートから描画する
 func (r *Render) Render(viewname string) ([]byte, error) {
+	// バイナリファイルを指定された場合は、バイナリデータを返却する
+	if buf, err, used := r.hasBinarys(viewname); used {
+		if err != nil {
+			return nil, err
+		}
+		return buf, nil
+	}
+
+	// テキストファイルのレンダリングの場合は、テンプレートファイルを読み込む
 	tmpl, root, err := r.templates()
 	if err != nil {
 		return nil, newError(err, tmpl, root)
@@ -347,6 +373,40 @@ func (r *Render) Render(viewname string) ([]byte, error) {
 		return nil, newError(err, tmpl, "")
 	}
 	return buf.Bytes(), nil
+}
+
+// バイナリファイルを処理する
+func (r *Render) hasBinarys(viewname string) ([]byte, error, bool) {
+	buf, ok := r.binlist[viewname]
+	// バイナリファイルが見つからない場合、復帰する
+	if !ok {
+		return nil, fmt.Errorf("not found %s", viewname), false
+	}
+	// バイナリファイルが見つかった場合、バイナリデータを返却する
+	if r.cache {
+		return buf, nil, true
+	}
+
+	// キャッシュが無効の場合、ディスクを再度読み込みに行く
+	conf := &Config{
+		Exclude:    r.exclude,
+		TargetDirs: r.dirs,
+		Extension:  r.ext,
+		Cache:      r.cache,
+	}
+	// ファイル一覧を作成
+	files, err := conf.filelist(r.dirs...)
+	if err != nil {
+		return nil, err, true
+	}
+	// バイナリリストを作成する
+	binlist := toBinary(files)
+	// バイナリファイルが見つからない場合、復帰する
+	if buf, ok = binlist[viewname]; !ok {
+		return nil, fmt.Errorf("not found %s", viewname), true
+	}
+
+	return buf, nil, true
 }
 
 // テンプレートを作成する
@@ -379,6 +439,10 @@ func (r *Render) templates() (*template.Template, string, error) {
 
 	// 対象となるファイル数分ループし、テンプレートを作成する
 	for _, v := range files {
+		// バイナリファイルの場合は、スルーする
+		if v.IsBinary {
+			continue
+		}
 		target = v.Template
 		if tmpl == nil {
 			tmpl, err = template.New(v.Filename).Funcs(r.Funcs).Parse(target)

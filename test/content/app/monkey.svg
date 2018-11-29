@@ -1,0 +1,30 @@
+﻿<svg version="1.1" xmlns="http://www.w3.org/2000/svg" x="0px" y="0px"
+	 width="128px" height="128px" viewBox="0 0 128 128">
+  <!-- 耳 -->
+  <circle cx="20"  cy="40" r="20" fill="#AA6333" />
+  <circle cx="20"  cy="40" r="12" fill="#FDDDB3" />
+  <circle cx="108" cy="40" r="20" fill="#AA6333" />
+  <circle cx="108" cy="40" r="12" fill="#FDDDB3" />
+  <!-- 顔 -->
+  <circle cx="64"  cy="64" r="48" fill="#AA6333" />
+
+  <ellipse cx="54" cy="70" rx="32" ry="40" fill="#FDDDB3" />
+  <ellipse cx="74" cy="70" rx="32" ry="40" fill="#FDDDB3" />
+  <ellipse cx="64" cy="73" rx="42" ry="40" fill="#FDDDB3" />
+
+  <!-- ほっぺた -->
+  <circle cx="40"  cy="88" r="14" fill="#FAC9BE" />
+  <circle cx="88"  cy="88" r="14" fill="#FAC9BE" />
+
+  <!-- 目 -->
+  <ellipse cx="40" cy="62" rx="7" ry="8" fill="#6D4230" />
+  <ellipse cx="88" cy="62" rx="7" ry="8" fill="#6D4230" />
+  <ellipse cx="88" cy="60" rx="3" ry="3" fill="#FFFFFF" />
+  <ellipse cx="40" cy="60" rx="3" ry="3" fill="#FFFFFF" />
+
+  <!-- 鼻 -->
+  <ellipse cx="64" cy="80" rx="7" ry="5" fill="#6D4230" />
+  <path d="M64 80 64 90" fill="none" stroke="#6D4230"/>
+  <path d="M64 90 A 3 3 0 1 1 56 90" fill="none" stroke="#6D4230"/>
+  <path d="M72 90 A 3 3 0 1 1 64 90" fill="none" stroke="#6D4230"/>
+</svg>

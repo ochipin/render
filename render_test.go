@@ -139,6 +139,13 @@ func Test__RENDER_NORMAL_FAILED(t *testing.T) {
 	} else {
 		fmt.Println(err.Error())
 	}
+
+	// バイナリデータの取得
+	buf, err := cp.Render("app/binary.html")
+	fmt.Println(err)
+	if len(buf) <= 0 {
+		t.Fatal("ERROR")
+	}
 }
 
 func Test__RENDER_STRING_SUCCESS(t *testing.T) {
