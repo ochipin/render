@@ -181,17 +181,13 @@ func (c *Config) filelist(dirs ...string) ([]*File, error) {
 			// 文字列除外設定されている場合、指定された文字列を除外する
 			if c.Exclude != nil && IsBinary == false {
 				regex := c.Exclude.Copy()
-				strs := strings.Split(str, "\n")
-				for i, v := range strs {
-					if !regex.MatchString(v) {
-						continue
-					}
-					find := regex.FindStringSubmatch(v)
-					if len(find) > 0 {
-						strs[i] = regex.ReplaceAllString(v, strings.Join(find[1:], ""))
-					}
+				var replace = ""
+				var reps = make([]string, regex.NumSubexp())
+				for i := 0; i < regex.NumSubexp(); i++ {
+					reps = append(reps, fmt.Sprintf("$%d", i+1))
 				}
-				str = strings.Join(strs, "\n")
+				replace = strings.Join(reps, "")
+				str = regex.ReplaceAllString(str, replace)
 			}
 
 			filelist = append(filelist, &File{

@@ -25,7 +25,7 @@ func Test__RENDER_NORMAL_SUCCESS(t *testing.T) {
 		Extension: []string{
 			".html",
 		},
-		Exclude: regexp.MustCompile(`^//=\s*(.+?)|^/\*=\s*(.+?)\*/`),
+		Exclude: regexp.MustCompile(`([|\n])//=\s*(.+)|([|\n])/\*=\s*([\s\S]+?)\*/`),
 	}
 
 	// 設定情報を元に、レンダリングオブジェクトを作成
