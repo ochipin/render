@@ -20,15 +20,15 @@ func (h Hello) World() string {
 /*
  views
    +-- content
-   |      +-- app
-   |           +-- index.html  // {{template "header/header.html" .}}
+   |      `-- app
+   |           `-- index.html  // {{template "header/header.html" .}}
    |                           // index file. {{.message}} {{World}}
    |                           // {{template "footer/footer.html" .}}
-   +-- _layout
-          +-- header
-          |    +-- header.html // header.html
-          +-- footer
-               +-- footer.html // footer.html
+   `-- _layout
+          `-- header
+          |    `-- header.html // header.html
+          `-- footer
+               `-- footer.html // footer.html
  */
 
 func main() {
@@ -41,11 +41,7 @@ func main() {
 		Extension: []string{
 			".html", ".htm", // 対象となるファイルの拡張子
 		},
-		// 除外する文字列を選定する。
-		// テンプレート処理する前に実施される点に注意すること
-		// //= が先頭に記載されているコメントは除外する
-		// また、 /*= から始まり、 */ で終わるコメントは除外する
-		// () で囲まれた部分のみが残る
+		// 除外する文字列を選定可能。
 		Exclude: regexp.MustCompile(`([|\n])//=\s*(.+)|([|\n])/\*=\s*([\s\S]+?)\*/`),
 		// 読み込んだテンプレートファイルをキャッシュする。
 		// 未指定の場合は、Render関数実行時に毎回ディスクにテンプレートファイルを読み込みに行く
@@ -100,6 +96,75 @@ func main() {
 		// e.Basename: エラーが発生したファイル名
 		// e.Root: エラーが発生したビューファイルの本文
 	}
+```
+
+
+## テンプレート関数 `import`
+
+`render.Config`構造体の`Funcs`パラメータに、テンプレート内で使用する関数を定義することが可能だが、
+登録する関数名に、`「import」`という関数名を使用することはできない点に注意すること。
+
+import 関数は、`render`ライブラリが内部で実装しており、次の様な挙動をする。
+
+```go
+// {{/* 何らかのテンプレートファイルのパスを $v 変数へ格納 */}}
+// {{$v := path}}
+
+// {{/* 変数 $v に格納されているテンプレートファイルのパスを import 関数へ渡す */}}
+// {{import $v}} <-- テンプレートの解析結果を展開する
+```
+
+## Exclude パラメータ
+
+`render.Config`構造体に`Exclude`パラメータがある。
+このパラメータに、除外したい文字列を設定することで、テンプレートファイル解析後に指定した文字列を除外する。
+
+```go
+// 設定情報を構築する
+c := &render.Config{
+    ...
+    // 下記例の場合、 "//=" が先頭に記載されているコメントは除外する
+    // また、 /*= から始まり、 */ で終わるコメントは除外する
+    // という意味になり、() で囲まれた部分のみが残る
+    // 下記で設定した正規表現の場合は、次のようにテンプレートが展開される
+    Exclude: regexp.MustCompile(`([|\n])//=\s*(.+)|([|\n])/\*=\s*([\s\S]+?)\*/`),
+    ...
+}
+```
+
+CSSファイルを例にすると、次のような挙動になる。
+
+### app.css
+default.cssを読み込む。
+```css
+@import "UTF-8";
+
+/*=
+{{import "default.css"}}
+ */
+```
+
+### default.css
+app.cssから読み込まれるCSS。
+```css
+html,body,pre,p,table,th,td{
+  margin:0;
+  padding:0;
+}
+...
+```
+
+### 展開後の app.css
+テンプレートファイル展開後、/*= と */ が除外されている。
+
+```css
+@import "UTF-8";
+
+html,body,pre,p,table,th,td{
+  margin:0;
+  padding:0;
+}
+...
 ```
 
 以上

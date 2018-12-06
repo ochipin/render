@@ -178,18 +178,6 @@ func (c *Config) filelist(dirs ...string) ([]*File, error) {
 				}
 			}
 
-			// 文字列除外設定されている場合、指定された文字列を除外する
-			if c.Exclude != nil && IsBinary == false {
-				regex := c.Exclude.Copy()
-				var replace = ""
-				var reps = make([]string, regex.NumSubexp())
-				for i := 0; i < regex.NumSubexp(); i++ {
-					reps = append(reps, fmt.Sprintf("$%d", i+1))
-				}
-				replace = strings.Join(reps, "")
-				str = regex.ReplaceAllString(str, replace)
-			}
-
 			filelist = append(filelist, &File{
 				Filename: c.path(path[len(dirname)+1:]), // ファイル名
 				Template: str,                           // ファイル内容
@@ -368,7 +356,25 @@ func (r *Render) Render(viewname string) ([]byte, error) {
 	if err := tmpl.ExecuteTemplate(&buf, viewname, r.Data); err != nil {
 		return nil, newError(err, tmpl, "")
 	}
-	return buf.Bytes(), nil
+	// 解析結果に対し、登録している正規表現オブジェクトを使用して、文字列を除外する
+	var str = buf.String()
+	if r.exclude != nil {
+		regex := r.exclude.Copy()
+		var replace = ""
+		var reps = make([]string, regex.NumSubexp())
+		for i := 0; i < regex.NumSubexp(); i++ {
+			reps = append(reps, fmt.Sprintf("$%d", i+1))
+		}
+		replace = strings.Join(reps, "")
+		for {
+			if !regex.MatchString(str) {
+				break
+			}
+			str = regex.ReplaceAllString(str, replace)
+		}
+	}
+	// 解析結果を返却する
+	return []byte(str), nil
 }
 
 // バイナリファイルを処理する
@@ -410,13 +416,32 @@ func (r *Render) templates() (*template.Template, string, error) {
 	var tmpl *template.Template
 	var target string
 	var err error
+	var funcs = make(template.FuncMap)
 
 	// 登録されているr.Funcsに、不正な関数名が登録されていないかチェックする
 	regex := regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_]+$`)
-	for name, _ := range r.Funcs {
+	for name, fn := range r.Funcs {
 		if regex.MatchString(name) == false {
 			return nil, "", fmt.Errorf("function name %s is not a valid identifier", name)
 		}
+		funcs[name] = fn
+	}
+	// import 関数を追加
+	funcs["import"] = func(i ...interface{}) (string, error) {
+		if len(i) == 0 {
+			return "", newError(fmt.Errorf("invalid arguments"), tmpl, "")
+		}
+		var name string
+		if len(i) == 1 {
+			name = fmt.Sprint(i[0])
+		} else {
+			name = fmt.Sprintf(fmt.Sprint(i[0]), i[1:]...)
+		}
+		var buf bytes.Buffer
+		if err := tmpl.ExecuteTemplate(&buf, name, r.Data); err != nil {
+			return "", newError(err, tmpl, "")
+		}
+		return buf.String(), nil
 	}
 
 	files := r.filelist
@@ -441,7 +466,7 @@ func (r *Render) templates() (*template.Template, string, error) {
 		}
 		target = v.Template
 		if tmpl == nil {
-			tmpl, err = template.New(v.Filename).Funcs(r.Funcs).Parse(target)
+			tmpl, err = template.New(v.Filename).Funcs(funcs).Parse(target)
 		} else {
 			tmpl, err = tmpl.New(v.Filename).Parse(target)
 		}

@@ -7,5 +7,9 @@
 //= 処理される2
  //= 処理されない
 //= 処理される3
-//=
+//= s
+
+    {{$v := "app/load.html"}}
+    {{import $v}}
+    {{import "app/%s.%s" "load" "html"}}
 {{template "footer/footer.html" .}}
