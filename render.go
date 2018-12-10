@@ -356,7 +356,7 @@ func (r *Render) Render(viewname string) ([]byte, error) {
 	if err := tmpl.ExecuteTemplate(&buf, viewname, r.Data); err != nil {
 		return nil, newError(err, tmpl, "")
 	}
-	// 解析結果に対し、登録している正規表現オブジェクトを使用して、文字列を除外する
+	// 文字列除外設定されている場合、指定された文字列を除外する
 	var str = buf.String()
 	if r.exclude != nil {
 		regex := r.exclude.Copy()
@@ -441,7 +441,21 @@ func (r *Render) templates() (*template.Template, string, error) {
 		if err := tmpl.ExecuteTemplate(&buf, name, r.Data); err != nil {
 			return "", newError(err, tmpl, "")
 		}
+
 		return buf.String(), nil
+	}
+	funcs["hastemplate"] = func(i ...interface{}) bool {
+		if len(i) == 0 {
+			return false
+		}
+		var name string
+		if len(i) == 1 {
+			name = fmt.Sprint(i[0])
+		} else {
+			name = fmt.Sprintf(fmt.Sprint(i[0]), i[1:]...)
+		}
+
+		return tmpl.Lookup(name) != nil
 	}
 
 	files := r.filelist

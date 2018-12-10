@@ -10,6 +10,8 @@
 //= s
 
     {{$v := "app/load.html"}}
-    {{import $v}}
+    {{if hastemplate $v}}
+      {{import $v}}
+    {{end}}
     {{import "app/%s.%s" "load" "html"}}
 {{template "footer/footer.html" .}}
