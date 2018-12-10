@@ -427,35 +427,22 @@ func (r *Render) templates() (*template.Template, string, error) {
 		funcs[name] = fn
 	}
 	// import 関数を追加
-	funcs["import"] = func(i ...interface{}) (string, error) {
-		if len(i) == 0 {
-			return "", newError(fmt.Errorf("invalid arguments"), tmpl, "")
-		}
-		var name string
-		if len(i) == 1 {
-			name = fmt.Sprint(i[0])
-		} else {
-			name = fmt.Sprintf(fmt.Sprint(i[0]), i[1:]...)
+	funcs["import"] = func(format string, i ...interface{}) (string, error) {
+		if len(i) >= 1 {
+			format = fmt.Sprintf(format, i...)
 		}
 		var buf bytes.Buffer
-		if err := tmpl.ExecuteTemplate(&buf, name, r.Data); err != nil {
+		if err := tmpl.ExecuteTemplate(&buf, format, r.Data); err != nil {
 			return "", newError(err, tmpl, "")
 		}
 
 		return buf.String(), nil
 	}
-	funcs["hastemplate"] = func(i ...interface{}) bool {
-		if len(i) == 0 {
-			return false
+	funcs["hastemplate"] = func(format string, i ...interface{}) bool {
+		if len(i) >= 1 {
+			format = fmt.Sprintf(format, i...)
 		}
-		var name string
-		if len(i) == 1 {
-			name = fmt.Sprint(i[0])
-		} else {
-			name = fmt.Sprintf(fmt.Sprint(i[0]), i[1:]...)
-		}
-
-		return tmpl.Lookup(name) != nil
+		return tmpl.Lookup(format) != nil
 	}
 
 	files := r.filelist
