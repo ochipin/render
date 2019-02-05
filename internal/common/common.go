@@ -100,6 +100,8 @@ func Helpers(funcs template.FuncMap, i interface{}, HelperType int) error {
 				Kind:    kind,
 			}
 		}
+		// チェックが成功した場合は、速やかに元のデータへ戻す
+		val = reflect.ValueOf(i)
 	// 構造体の場合、何もせず次の処理へ
 	case reflect.Struct:
 	// ポインタ、または構造体ではない場合、エラーを返却する
