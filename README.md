@@ -17,7 +17,7 @@ func main() {
     conf := &render.Config {
         Directory:  "app/views/contents",
         Targets:    []string{".html", ".text"},
-        Exclude:    regexp.MustCompile(`(^|[|\n])//=\s*(.+?)\s*$|(^|[|\n])/\*=\s*([\s\S]+?)\s*\*/`),
+        Exclude:    regexp.MustCompile(`(^|[|\n])//=\s*(.+?)\s*$|(^|[|\n])/\*=\s*([\s\S]*?)\s*\*/`),
         Binary:     true,
         Cache:      true,
         MaxSize:    100 << 20,
@@ -126,7 +126,7 @@ function execute(n, t) {
 conf := &Config {
     // ()で囲まれた部分のみが残り、それ以外の文字列は削除される
     //                            $1             $2        $3              $4
-    Exclude: regexp.MustCompile(`(^|[|\n])//=\s*(.+?)\s*$|(^|[|\n])/\*=\s*([\s\S]+?)\s*\*/`)
+    Exclude: regexp.MustCompile(`(^|[|\n])//=\s*(.+?)\s*$|(^|[|\n])/\*=\s*([\s\S]*?)\s*\*/`)
 }
 ```
 
@@ -258,7 +258,7 @@ conf := &render.Config {
     // app/views/contents 配下に、app/index.html ファイルがある
     Directory:  "app/views/contents",
     Targets:    []string{".html", ".text"},
-    Exclude:    regexp.MustCompile(`(^|[|\n])//=\s*(.+?)\s*$|(^|[|\n])/\*=\s*([\s\S]+?)\s*\*/`),
+    Exclude:    regexp.MustCompile(`(^|[|\n])//=\s*(.+?)\s*$|(^|[|\n])/\*=\s*([\s\S]*?)\s*\*/`),
     Binary:     true,
     Cache:      true,
     MaxSize:    100 << 20,
